@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Rally Scorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05050d;color:#e2e2f0;font-family:'Inter',system-ui,sans-serif;min-height:100vh}
+  textarea{font-family:inherit}
+  ::-webkit-scrollbar{width:6px}
+  ::-webkit-scrollbar-track{background:#0a0a18}
+  ::-webkit-scrollbar-thumb{background:#1a1a2e;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+const RALLY_CRITERIA = {
+  campaign: [
+    { id: "originality", label: "Originality & Authenticity", max: 2 },
+    { id: "content_alignment", label: "Content Alignment", max: 2 },
+    { id: "information_accuracy", label: "Information Accuracy", max: 2 },
+    { id: "campaign_compliance", label: "Campaign Compliance", max: 2 },
+    { id: "show_vs_tell", label: "Show vs Tell", max: 2 },
+    { id: "cta_visibility", label: "CTA Visibility", max: 2 },
+  ],
+  quality: [
+    { id: "engagement_potential", label: "Engagement Potential", max: 5 },
+    { id: "click_through_potential", label: "Click-Through Potential", max: 5 },
+    { id: "technical_quality", label: "Technical Quality", max: 5 },
+  ],
+};
+
+const ENGAGEMENT_SUB = [
+  { id: "reply_potential", label: "Reply Potential", max: 5, hint: "Questions, controversy, emotional resonance, self-reflection" },
+  { id: "share_potential", label: "Share Potential", max: 5, hint: "Memorable lines, identity statements, surprising observations, quotable moments" },
+  { id: "bookmark_potential", label: "Bookmark Potential", max: 5, hint: "Educational value, demonstrated insight, useful reframes" },
+  { id: "click_potential", label: "Click Potential", max: 5, hint: "Urgency, visible CTA, reason to act now" },
+];
+
+const STORY_CRITERIA = [
+  { id: "emotional_anchor", label: "Emotional Anchor", max: 10, hint: "One moment readers will remember" },
+  { id: "surprise_factor", label: "Surprise Factor", max: 10, hint: "Unexpected observation that makes readers pause" },
+  { id: "narrative_tension", label: "Narrative Tension", max: 10, hint: "Suspense and delayed payoff" },
+  { id: "specificity", label: "Specificity Score", max: 10, hint: "Quotes, numbers, names, objects, time periods" },
+  { id: "emotional_reframe", label: "Emotional Reframe", max: 10, hint: "Shift to a deeper emotion beyond the surface event" },
+  { id: "scene_detection", label: "Scene Detection", max: 10, hint: "Can readers visualize this?" },
+  { id: "memorability", label: "Memorability Score", max: 10, hint: "What would readers remember next week?" },
+  { id: "story_ratio", label: "Story-to-Explanation Ratio", max: 10, hint: "60-70% story, 30-40% explanation" },
+];
+
+const SCORER_SYSTEM = `You are an elite Rally campaign judge trained to identify top-5 leaderboard posts.
+
+OFFICIAL RALLY SCORING:
+Campaign Requirements (0-2 each):
+- originality: genuine personal voice, specific not generic, not crypto boilerplate
+- content_alignment: matches mission, names project, covers key pillars, includes required CTAs
+- information_accuracy: facts match campaign materials, covers mandatory elements
+- campaign_compliance: ALL hard rules met, @mention present, mandatory elements included, no em dash, does not start with mention or hashtag
+- show_vs_tell: 2/2 platform value emerges naturally from story and emotional experience. 1/2 mix of storytelling and explanation. 0/2 mostly product description with little narrative proof. Reward demonstrated value over described value.
+- cta_visibility: 2/2 CTA is clear, easy to find, readers know what to do next. 1/2 CTA exists but partially embedded in story. 0/2 no CTA present.
+
+Quality Metrics (0-5 each):
+- engagement_potential: measures whether readers will reply, quote, bookmark, or share. Score on emotional hooks, memorable observations, identity statements, provocative questions, authentic tension. Do NOT lower this score because the CTA is embedded naturally in the story. Authentic storytelling outperforms aggressive directives.
+- click_through_potential: measures how visible and actionable the invitation to join or visit the platform is. A buried CTA should reduce click_through_potential, NOT engagement_potential. These are separate dimensions. Never conflate them.
+- technical_quality: only deduct for genuine formatting issues: broken URLs, incorrect markdown, attached punctuation risking unclickable links, grammatical errors, poor readability.
+
+When scoring engagement, evaluate these sub-dimensions separately:
+- reply_potential: questions, controversy, emotional resonance, self-reflection
+- share_potential: memorable lines, identity statements, surprising observations, quotable moments
+- bookmark_potential: educational value, demonstrated insight, useful reframes
+- click_potential: urgency, visible CTA, reason to act now
+
+STORY DIMENSIONS (0-10 each):
+- emotional_anchor, surprise_factor, narrative_tension, specificity, emotional_reframe, scene_detection, memorability, story_ratio
+
+PENALIZE: feature lists, benefit lists, documentation tone, marketing copy, more than 4-5 consecutive explanation lines without a human moment, generic language, payoff revealed in first line.
+REWARD: scene over argument, memory over information, experience over features, emotion over logic, quote over statement, story over essay, demonstrated value over described value, subtlety, authenticity, narrative integration.
+
+Return ONLY raw JSON. No markdown. No backticks.`;
+
+const GENERATOR_SYSTEM = `You are an elite Rally content strategist who writes posts that rank top-5.
+
+Top-5 posts are better memories, not better arguments.
+
+Philosophy:
+- Scene over argument
+- Memory over information
+- Experience over features
+- Emotion over logic
+- Quote over statement
+- Specificity over generalization
+- Story over essay
+
+Structure every post around ONE memorable moment: a quote, a number, a scene, an object, an action.
+
+Never write: feature lists, benefit lists, marketing copy tone, abstract arguments, generic crypto language.
+
+Every post must:
+- Have one line readers will remember next week
+- Contain at least one specific: a number, quote, name, or object
+- Build to an emotional payoff, not open with it
+- Use short punchy lines with line breaks
+- Include @RallyOnChain naturally
+- Separate engagement invitation from click CTA so both are clear
+- Follow all campaign rules exactly
+- Include ALL mandatory elements
+
+Return ONLY a JSON array of 5 strings. No markdown. No backticks.`;
+
+const SCORE_JSON_TEMPLATE = '{"scores":{"originality":1,"content_alignment":1,"information_accuracy":1,"campaign_compliance":1,"show_vs_tell":1,"cta_visibility":1,"engagement_potential":3,"click_through_potential":3,"technical_quality":4},"engagement_sub":{"reply_potential":3,"share_potential":3,"bookmark_potential":3,"click_potential":3},"story_scores":{"emotional_anchor":5,"surprise_factor":5,"narrative_tension":5,"specificity":5,"emotional_reframe":5,"scene_detection":5,"memorability":5,"story_ratio":5},"mandatory_check":{"element_name":"pass or fail with reason"},"memorable_line":"the one line from this post readers will remember or none","product_copy_detected":false,"leaderboard_gap":"what specifically separates this from top 1-5 posts","human_memory_test":"what would readers remember next week","feedback":{"originality":"sentence","content_alignment":"sentence","information_accuracy":"sentence","campaign_compliance":"sentence","show_vs_tell":"sentence","cta_visibility":"sentence","engagement_potential":"sentence","click_through_potential":"sentence","technical_quality":"sentence"},"story_feedback":{"emotional_anchor":"sentence","surprise_factor":"sentence","narrative_tension":"sentence","specificity":"sentence","emotional_reframe":"sentence","scene_detection":"sentence","memorability":"sentence","story_ratio":"sentence"},"summary":"2-3 sentence verdict","strengths":["s1","s2"],"improvements":["i1","i2"]}';
+
+function ScoreBar({ score, max }) {
+  const pct = (score / max) * 100;
+  const color = pct >= 80 ? "#22c55e" : pct >= 60 ? "#eab308" : "#ef4444";
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+      <div style={{ flex:1, background:"#1a1a2e", borderRadius:4, height:5, overflow:"hidden" }}>
+        <div style={{ width:`${pct}%`, background:color, height:"100%", borderRadius:4, transition:"width 0.6s ease" }} />
+      </div>
+      <span style={{ fontSize:12, color, fontWeight:700, minWidth:38, textAlign:"right" }}>{score}/{max}</span>
+    </div>
+  );
+}
+
+function Field({ label, hint, value, onChange, rows }) {
+  return (
+    <div style={{ marginBottom:14 }}>
+      <label style={{ fontSize:10, color:"#52527a", textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:5 }}>{label}</label>
+      {hint && <p style={{ fontSize:12, color:"#3d3d5c", margin:"0 0 6px", lineHeight:1.5 }}>{hint}</p>}
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={rows || 3}
+        style={{ width:"100%", background:"#08080f", border:"1px solid #1a1a2e", borderRadius:8, padding:"9px 11px", color:"#e2e2f0", fontSize:13, resize:"vertical", lineHeight:1.6, fontFamily:"inherit", boxSizing:"border-box", outline:"none" }}
+      />
+    </div>
+  );
+}
+
+function App() {
+  const [step, setStep] = useState(1);
+  const [briefTab, setBriefTab] = useState("brief");
+  const [scoreTab, setScoreTab] = useState("rally");
+  const [mission, setMission] = useState("");
+  const [rules, setRules] = useState("");
+  const [style, setStyle] = useState("");
+  const [mandatory, setMandatory] = useState("");
+  const [top15, setTop15] = useState("");
+  const [top2125, setTop2125] = useState("");
+  const [post, setPost] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [ideasLoading, setIdeasLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [ideas, setIdeas] = useState([]);
+  const [error, setError] = useState(null);
+  const [expandedIdea, setExpandedIdea] = useState(null);
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+
+  const callAPI = async (sys, user, temp) => {
+    const key = apiKey.trim();
+    if (!key) throw new Error("Please enter your Anthropic API key above.");
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:3000, temperature:temp||0, system:sys, messages:[{role:"user",content:user}] }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || "API error " + res.status);
+    return (data.content||[]).map(b=>b.text||"").join("");
+  };
+
+  const buildContext = () => {
+    let ctx = "CAMPAIGN MISSION:\n"+(mission||"Not provided")+"\n\nCAMPAIGN RULES:\n"+(rules||"Not provided")+"\n\nPOST STYLE:\n"+(style||"Not provided")+"\n\nMANDATORY ELEMENTS:\n"+(mandatory||"Not provided");
+    if (top15.trim()) ctx += "\n\nTOP 1-5 LEADERBOARD POSTS (benchmark for perfect scores):\n"+top15;
+    if (top2125.trim()) ctx += "\n\nRANK 21-25 POSTS (benchmark for mid scores):\n"+top2125;
+    return ctx;
+  };
+
+  const buildScorePrompt = (postText) =>
+    buildContext() + "\n\nScore this post. Return ONLY this exact JSON with real scores:\n" + SCORE_JSON_TEMPLATE + "\n\nPost:\n" + postText.trim();
+
+  const parseScoreRuns = (runs) => {
+    const parsed = runs.map(t => JSON.parse(t.match(/\{[\s\S]*\}/)[0]));
+    const avgObj = (key) => {
+      const first = parsed[0][key] || {};
+      const out = {};
+      Object.keys(first).forEach(id => {
+        out[id] = Math.round((parsed.reduce((s,r) => s+((r[key]?.[id])||0), 0)/3)*10)/10;
+      });
+      return out;
+    };
+    const scores = avgObj("scores");
+    const ct = ["originality","content_alignment","information_accuracy","campaign_compliance","show_vs_tell","cta_visibility"].reduce((a,id)=>a+(scores[id]||0),0);
+    const qt = ["engagement_potential","click_through_potential","technical_quality"].reduce((a,id)=>a+(scores[id]||0),0);
+    const rallyScore = Math.round(((ct/12)*0.6+(qt/15)*0.4)*100)/10;
+    const storyVals = Object.values(avgObj("story_scores"));
+    const storyAvg = Math.round((storyVals.reduce((a,b)=>a+b,0)/storyVals.length)*10)/10;
+    const overall = Math.round((rallyScore*0.55+storyAvg*0.045)*10)/10;
+    return {
+      scores, engagement_sub:avgObj("engagement_sub"), story_scores:avgObj("story_scores"),
+      mandatory_check:parsed[1].mandatory_check, memorable_line:parsed[1].memorable_line,
+      product_copy_detected:parsed[1].product_copy_detected, leaderboard_gap:parsed[1].leaderboard_gap,
+      human_memory_test:parsed[1].human_memory_test, feedback:parsed[1].feedback,
+      story_feedback:parsed[1].story_feedback, summary:parsed[1].summary,
+      strengths:parsed[1].strengths, improvements:parsed[1].improvements,
+      overall, rallyScore, storyAvg, ct, qt,
+    };
+  };
+
+  const handleScore = async () => {
+    if (!post.trim()||loading) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const prompt = buildScorePrompt(post);
+      const runs = await Promise.all([callAPI(SCORER_SYSTEM,prompt,0),callAPI(SCORER_SYSTEM,prompt,0),callAPI(SCORER_SYSTEM,prompt,0)]);
+      setResult(parseScoreRuns(runs));
+      setScoreTab("rally");
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const handleIdeas = async () => {
+    setIdeasLoading(true); setIdeas([]); setExpandedIdea(null);
+    const userPrompt = buildContext()+"\n\nGenerate 5 posts that would rank top-5. Each must have: one memorable anchor line, at least one specific (number/quote/name/object), emotional payoff at the end not the start, line breaks for readability, ALL mandatory elements, @RallyOnChain included naturally, engagement invitation separate from click CTA. Return as JSON array only.";
+    try {
+      const text = await callAPI(GENERATOR_SYSTEM,userPrompt,0.85);
+      const match = text.match(/\[[\s\S]*\]/);
+      if (!match) { setError("Could not generate. Try again."); setIdeasLoading(false); return; }
+      const posts = JSON.parse(match[0]);
+      setIdeas(posts.map(idea=>({idea,scoring:true,scoreResult:null})));
+      setIdeasLoading(false);
+      const scoreResults = await Promise.allSettled(posts.map(async p => {
+        const prompt = buildScorePrompt(p);
+        const runs = await Promise.all([callAPI(SCORER_SYSTEM,prompt,0),callAPI(SCORER_SYSTEM,prompt,0),callAPI(SCORER_SYSTEM,prompt,0)]);
+        return parseScoreRuns(runs);
+      }));
+      setIdeas(posts.map((idea,i)=>({
+        idea, scoring:false,
+        scoreResult: scoreResults[i].status==="fulfilled" ? scoreResults[i].value : null,
+      })));
+    } catch(e) { setError(e.message); setIdeasLoading(false); }
+  };
+
+  const rallyTotal = (() => {
+    if (!result) return null;
+    const s = result.scores;
+    const ct = ["originality","content_alignment","information_accuracy","campaign_compliance","show_vs_tell","cta_visibility"].reduce((a,id)=>a+(s[id]||0),0);
+    const qt = ["engagement_potential","click_through_potential","technical_quality"].reduce((a,id)=>a+(s[id]||0),0);
+    return { score:Math.round(((ct/12)*0.6+(qt/15)*0.4)*100)/10, ct, qt };
+  })();
+  const storyTotal = (() => {
+    if (!result?.story_scores) return null;
+    const vals = Object.values(result.story_scores);
+    return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
+  })();
+  const overallScore = rallyTotal&&storyTotal ? Math.round((rallyTotal.score*0.55+storyTotal*0.045)*10)/10 : null;
+  const overallColor = !overallScore?"#52527a":overallScore>=8?"#22c55e":overallScore>=6?"#eab308":"#ef4444";
+
+  const pill = (active) => ({
+    flex:1, padding:"8px 0", background:"transparent", border:"none",
+    borderBottom:active?"2px solid #7c3aed":"2px solid transparent",
+    color:active?"#a78bfa":"#3d3d5c", fontSize:11, fontWeight:700,
+    letterSpacing:0.5, textTransform:"uppercase", cursor:"pointer",
+  });
+  const stepBtn = (active) => ({
+    flex:1, padding:"9px 0", background:active?"#12122a":"transparent",
+    border:"none", borderRadius:8, color:active?"#a78bfa":"#3d3d5c",
+    fontSize:13, fontWeight:600, cursor:"pointer",
+  });
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#05050d", color:"#e2e2f0", fontFamily:"'Inter',system-ui,sans-serif", padding:"24px 16px" }}>
+      <div style={{ maxWidth:580, margin:"0 auto" }}>
+
+        {/* Header */}
+        <div style={{ marginBottom:20, display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ width:36, height:36, background:"linear-gradient(135deg,#7c3aed,#4f46e5)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>⚡</div>
+          <div>
+            <div style={{ fontSize:18, fontWeight:800, letterSpacing:-0.5, color:"#f0f0ff" }}>Rally Scorer</div>
+            <div style={{ fontSize:11, color:"#3d3d5c", letterSpacing:0.3 }}>Scene over argument · Memory over information</div>
+          </div>
+        </div>
+
+        {/* API Key */}
+        <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:10, padding:"12px 14px", marginBottom:16 }}>
+          <div style={{ fontSize:10, color:"#52527a", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Anthropic API Key</div>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <input
+              type={showKey?"text":"password"}
+              value={apiKey}
+              onChange={e=>setApiKey(e.target.value)}
+              placeholder="sk-ant-..."
+              style={{ flex:1, background:"#08080f", border:"1px solid #1a1a2e", borderRadius:7, padding:"8px 10px", color:"#e2e2f0", fontSize:13, outline:"none", fontFamily:"monospace" }}
+            />
+            <button onClick={()=>setShowKey(v=>!v)} style={{ background:"#12122a", border:"1px solid #1a1a2e", borderRadius:7, padding:"8px 12px", color:"#52527a", fontSize:12, cursor:"pointer" }}>
+              {showKey?"Hide":"Show"}
+            </button>
+          </div>
+          <p style={{ fontSize:11, color:"#2a2a40", margin:"6px 0 0" }}>Your key stays in your browser. Never sent anywhere except Anthropic's API.</p>
+        </div>
+
+        {/* Step nav */}
+        <div style={{ display:"flex", gap:4, marginBottom:16, background:"#0a0a18", borderRadius:10, padding:4 }}>
+          {[["1","Campaign Brief"],["2","Score + Ideas"]].map(([s,label])=>(
+            <button key={s} onClick={()=>setStep(Number(s))} style={stepBtn(step===Number(s))}>
+              <span style={{ color:step===Number(s)?"#7c3aed":"#1e1e3f", marginRight:6, fontWeight:800 }}>{s}</span>{label}
+            </button>
+          ))}
+        </div>
+
+        {/* Step 1 */}
+        {step===1 && (
+          <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:12, overflow:"hidden" }}>
+            <div style={{ display:"flex", borderBottom:"1px solid #1a1a2e" }}>
+              {[["brief","Campaign Brief"],["calibrate","Leaderboard"]].map(([t,label])=>(
+                <button key={t} onClick={()=>setBriefTab(t)} style={pill(briefTab===t)}>{label}</button>
+              ))}
+            </div>
+            <div style={{ padding:18 }}>
+              {briefTab==="brief" && (
+                <>
+                  <Field label="Campaign Mission" hint="What is the campaign asking for?" value={mission} onChange={setMission} rows={3}/>
+                  <Field label="Campaign Rules" hint="Paste all rules exactly." value={rules} onChange={setRules} rows={4}/>
+                  <Field label="Post Style" hint="Tone and format guidelines." value={style} onChange={setStyle} rows={3}/>
+                  <Field label="Mandatory Elements" hint="Every specific thing the post MUST include." value={mandatory} onChange={setMandatory} rows={4}/>
+                </>
+              )}
+              {briefTab==="calibrate" && (
+                <>
+                  <div style={{ background:"#08080f", border:"1px solid #1a1a2e", borderRadius:8, padding:12, marginBottom:14 }}>
+                    <p style={{ fontSize:12, color:"#3d3d5c", margin:0, lineHeight:1.6 }}>Paste real leaderboard posts. Top 1-5 sets the benchmark for perfect scores. Rank 21-25 defines the middle.</p>
+                  </div>
+                  <Field label="Top 1-5 Posts" hint="Separate each post with a blank line." value={top15} onChange={setTop15} rows={8}/>
+                  <Field label="Rank 21-25 Posts" hint="Separate each post with a blank line." value={top2125} onChange={setTop2125} rows={8}/>
+                  {top15.trim() && (
+                    <div style={{ background:"#030d03", border:"1px solid #14532d", borderRadius:8, padding:10 }}>
+                      <p style={{ fontSize:12, color:"#86efac", margin:0 }}>✓ Leaderboard calibration active</p>
+                    </div>
+                  )}
+                </>
+              )}
+              <button
+                onClick={()=>setStep(2)}
+                disabled={!mission.trim()}
+                style={{ width:"100%", padding:"12px 0", marginTop:10, background:!mission.trim()?"#1a1a2e":"linear-gradient(135deg,#7c3aed,#4f46e5)", border:"none", borderRadius:10, color:!mission.trim()?"#3d3d5c":"#fff", fontSize:14, fontWeight:700, cursor:!mission.trim()?"not-allowed":"pointer" }}
+              >Next: Score Draft →</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2 */}
+        {step===2 && (
+          <>
+            {/* Active brief */}
+            <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:12, padding:14, marginBottom:14 }}>
+              <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Active Brief</div>
+              <p style={{ fontSize:13, color:"#9090b0", margin:"0 0 4px", lineHeight:1.5 }}>{mission}</p>
+              {mandatory && <p style={{ fontSize:11, color:"#3d3d5c", margin:"4px 0 0" }}>Must include: {mandatory}</p>}
+              {top15.trim() && (
+                <div style={{ marginTop:8, paddingTop:8, borderTop:"1px solid #1a1a2e", display:"flex", alignItems:"center", gap:6 }}>
+                  <div style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e" }}/>
+                  <span style={{ fontSize:11, color:"#22c55e" }}>Leaderboard calibration active</span>
+                </div>
+              )}
+            </div>
+
+            {/* Draft */}
+            <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:12, padding:16, marginBottom:14 }}>
+              <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Your Draft</div>
+              <textarea
+                value={post}
+                onChange={e=>setPost(e.target.value)}
+                placeholder="Paste your post here..."
+                rows={7}
+                style={{ width:"100%", background:"#08080f", border:"1px solid #1a1a2e", borderRadius:8, padding:"10px 12px", color:"#e2e2f0", fontSize:14, resize:"vertical", lineHeight:1.6, fontFamily:"inherit", boxSizing:"border-box", outline:"none" }}
+              />
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
+                <span style={{ fontSize:11, color:"#3d3d5c" }}>{post.length} chars</span>
+                <button
+                  onClick={handleScore}
+                  disabled={loading||!post.trim()}
+                  style={{ background:loading||!post.trim()?"#1a1a2e":"linear-gradient(135deg,#7c3aed,#4f46e5)", border:"none", borderRadius:20, padding:"10px 22px", color:loading||!post.trim()?"#3d3d5c":"#fff", fontSize:13, fontWeight:700, cursor:loading||!post.trim()?"not-allowed":"pointer" }}
+                >{loading?"Scoring ×3...":"Score Draft"}</button>
+              </div>
+            </div>
+
+            {error && <div style={{ background:"#120a0a", border:"1px solid #7f1d1d", borderRadius:8, padding:12, marginBottom:14, fontSize:13, color:"#fca5a5" }}>{error}</div>}
+            {loading && <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:12, padding:24, textAlign:"center", marginBottom:14 }}><div style={{ fontSize:12, color:"#3d3d5c" }}>Running 3 evaluations across 17 dimensions...</div></div>}
+
+            {/* Results */}
+            {result && !loading && (
+              <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:12, overflow:"hidden", marginBottom:14 }}>
+                <div style={{ background:"#08080f", padding:"18px 20px", borderBottom:"1px solid #1a1a2e" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                    <div>
+                      <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:4 }}>Overall Score</div>
+                      <div style={{ fontSize:44, fontWeight:900, color:overallColor, letterSpacing:-2, lineHeight:1 }}>
+                        {overallScore}<span style={{ fontSize:18, color:"#1e1e3f", fontWeight:400 }}>/10</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign:"right", paddingTop:4 }}>
+                      <div style={{ fontSize:11, color:"#3d3d5c", marginBottom:3 }}>Rally: {rallyTotal?.ct}/12 · {rallyTotal?.qt}/15</div>
+                      <div style={{ fontSize:11, color:"#3d3d5c" }}>Story: {storyTotal}/10 avg</div>
+                    </div>
+                  </div>
+                  {result.memorable_line && result.memorable_line!=="none" && (
+                    <div style={{ marginTop:14, padding:"10px 12px", background:"rgba(124,58,237,0.08)", border:"1px solid rgba(124,58,237,0.25)", borderRadius:8 }}>
+                      <div style={{ fontSize:10, color:"#7c3aed", textTransform:"uppercase", letterSpacing:0.8, marginBottom:4 }}>Memorable Line</div>
+                      <p style={{ fontSize:13, color:"#c4b5fd", margin:0, fontStyle:"italic" }}>{result.memorable_line}</p>
+                    </div>
+                  )}
+                  {result.product_copy_detected && (
+                    <div style={{ marginTop:10, padding:"8px 12px", background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", borderRadius:8 }}>
+                      <p style={{ fontSize:12, color:"#fca5a5", margin:0 }}>Product copy detected. Replace feature language with an experience or scene.</p>
+                    </div>
+                  )}
+                </div>
+                {result.leaderboard_gap && (
+                  <div style={{ padding:"12px 20px", borderBottom:"1px solid #1a1a2e", background:"#070710" }}>
+                    <div style={{ fontSize:10, color:"#7c3aed", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Gap vs Top 1-5</div>
+                    <p style={{ fontSize:13, color:"#c4b5fd", margin:"0 0 5px", lineHeight:1.5 }}>{result.leaderboard_gap}</p>
+                    {result.human_memory_test && <p style={{ fontSize:11, color:"#3d3d5c", margin:0 }}>Readers will remember: {result.human_memory_test}</p>}
+                  </div>
+                )}
+                {result.mandatory_check && (
+                  <div style={{ padding:"12px 20px", borderBottom:"1px solid #1a1a2e" }}>
+                    <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Mandatory Elements</div>
+                    {Object.entries(result.mandatory_check).map(([el,status])=>{
+                      const pass=String(status).toLowerCase().startsWith("pass");
+                      return <div key={el} style={{ display:"flex", gap:8, marginBottom:5, fontSize:12, alignItems:"flex-start" }}><span style={{ color:pass?"#22c55e":"#ef4444", flexShrink:0, fontWeight:800 }}>{pass?"✓":"✗"}</span><span style={{ color:"#9090b0" }}>{el}: {status}</span></div>;
+                    })}
+                  </div>
+                )}
+                <div style={{ display:"flex", borderBottom:"1px solid #1a1a2e" }}>
+                  {[["rally","Rally"],["engagement","Engagement"],["story","Story"],["feedback","Feedback"]].map(([t,label])=>(
+                    <button key={t} onClick={()=>setScoreTab(t)} style={pill(scoreTab===t)}>{label}</button>
+                  ))}
+                </div>
+                <div style={{ padding:18 }}>
+                  {scoreTab==="rally" && (
+                    <div>
+                      <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:14 }}>Campaign Requirements (out of 2)</div>
+                      {RALLY_CRITERIA.campaign.map(c=>(
+                        <div key={c.id} style={{ marginBottom:14 }}>
+                          <div style={{ fontSize:13, color:"#e2e2f0", marginBottom:5 }}>{c.label}</div>
+                          <ScoreBar score={result.scores[c.id]||0} max={c.max}/>
+                          {result.feedback?.[c.id] && <p style={{ fontSize:11, color:"#3d3d5c", margin:"4px 0 0", lineHeight:1.4 }}>{result.feedback[c.id]}</p>}
+                        </div>
+                      ))}
+                      <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, margin:"20px 0 14px" }}>Quality Metrics (out of 5)</div>
+                      {RALLY_CRITERIA.quality.map(c=>(
+                        <div key={c.id} style={{ marginBottom:14 }}>
+                          <div style={{ fontSize:13, color:"#e2e2f0", marginBottom:5 }}>{c.label}</div>
+                          <ScoreBar score={result.scores[c.id]||0} max={c.max}/>
+                          {result.feedback?.[c.id] && <p style={{ fontSize:11, color:"#3d3d5c", margin:"4px 0 0", lineHeight:1.4 }}>{result.feedback[c.id]}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {scoreTab==="engagement" && (
+                    <div>
+                      <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Engagement Breakdown</div>
+                      <p style={{ fontSize:12, color:"#3d3d5c", margin:"0 0 16px", lineHeight:1.5 }}>Engagement Potential and Click-Through Potential are separate dimensions.</p>
+                      {ENGAGEMENT_SUB.map(c=>(
+                        <div key={c.id} style={{ marginBottom:14 }}>
+                          <div style={{ fontSize:13, color:"#e2e2f0", marginBottom:3 }}>{c.label}</div>
+                          <p style={{ fontSize:11, color:"#3d3d5c", margin:"0 0 5px" }}>{c.hint}</p>
+                          <ScoreBar score={result.engagement_sub?.[c.id]||0} max={c.max}/>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {scoreTab==="story" && (
+                    <div>
+                      <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:14 }}>Story Dimensions (out of 10)</div>
+                      {STORY_CRITERIA.map(c=>(
+                        <div key={c.id} style={{ marginBottom:16 }}>
+                          <div style={{ fontSize:13, color:"#e2e2f0", marginBottom:3 }}>{c.label}</div>
+                          <p style={{ fontSize:11, color:"#3d3d5c", margin:"0 0 5px" }}>{c.hint}</p>
+                          <ScoreBar score={result.story_scores?.[c.id]||0} max={c.max}/>
+                          {result.story_feedback?.[c.id] && <p style={{ fontSize:11, color:"#3d3d5c", margin:"4px 0 0", lineHeight:1.4 }}>{result.story_feedback[c.id]}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {scoreTab==="feedback" && (
+                    <div>
+                      <p style={{ fontSize:14, color:"#c0c0d8", lineHeight:1.7, marginTop:0, marginBottom:20 }}>{result.summary}</p>
+                      <div style={{ marginBottom:20 }}>
+                        <div style={{ fontSize:10, color:"#22c55e", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>What works</div>
+                        {(result.strengths||[]).map((s,i)=>(
+                          <div key={i} style={{ display:"flex", gap:8, marginBottom:8, fontSize:13, color:"#c0c0d8", alignItems:"flex-start" }}><span style={{ color:"#22c55e", flexShrink:0 }}>+</span>{s}</div>
+                        ))}
+                      </div>
+                      <div>
+                        <div style={{ fontSize:10, color:"#f59e0b", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Fix before posting</div>
+                        {(result.improvements||[]).map((s,i)=>(
+                          <div key={i} style={{ display:"flex", gap:8, marginBottom:8, fontSize:13, color:"#c0c0d8", alignItems:"flex-start" }}><span style={{ color:"#f59e0b", flexShrink:0 }}>!</span>{s}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Ideas */}
+            <div style={{ background:"#0a0a18", border:"1px solid #1a1a2e", borderRadius:12, overflow:"hidden" }}>
+              <div style={{ padding:"14px 18px", borderBottom:"1px solid #1a1a2e", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, color:"#e2e2f0" }}>Post Ideas</div>
+                  <div style={{ fontSize:11, color:"#3d3d5c", marginTop:2 }}>{top15.trim()?"Modeled after real top-5 posts":"Optimized for top-5 · Scene over argument"}</div>
+                </div>
+                <button
+                  onClick={handleIdeas}
+                  disabled={ideasLoading||!mission.trim()}
+                  style={{ background:ideasLoading?"#1a1a2e":"linear-gradient(135deg,#7c3aed,#4f46e5)", border:"none", borderRadius:8, padding:"8px 14px", color:ideasLoading?"#3d3d5c":"#fff", fontSize:12, fontWeight:700, cursor:ideasLoading?"not-allowed":"pointer" }}
+                >{ideasLoading?"Generating...":ideas.length>0?"Regenerate":"Generate Ideas"}</button>
+              </div>
+              {ideasLoading && <div style={{ padding:24, textAlign:"center" }}><div style={{ fontSize:12, color:"#3d3d5c" }}>Writing 5 posts optimized for top-5...</div></div>}
+              {ideas.length>0 && !ideasLoading && (
+                <div style={{ padding:14, display:"flex", flexDirection:"column", gap:10 }}>
+                  {ideas.map(({idea,scoring,scoreResult},i)=>{
+                    const sc = scoreResult;
+                    const scoreColor = !sc?"#52527a":sc.overall>=8?"#22c55e":sc.overall>=6?"#eab308":"#ef4444";
+                    const isExpanded = expandedIdea===i;
+                    return (
+                      <div key={i} style={{ background:"#08080f", border:`1px solid ${sc?scoreColor+"44":"#1a1a2e"}`, borderRadius:10, overflow:"hidden" }}>
+                        <div style={{ padding:14 }}>
+                          <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                            <span style={{ fontSize:11, color:"#3d3d5c", fontWeight:800, minWidth:18, marginTop:2 }}>{i+1}</span>
+                            <div style={{ flex:1 }}>
+                              <p style={{ fontSize:13, color:"#c0c0d8", margin:"0 0 12px", lineHeight:1.7, whiteSpace:"pre-wrap" }}>{idea}</p>
+                              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                                {scoring ? (
+                                  <span style={{ fontSize:11, color:"#3d3d5c", fontStyle:"italic" }}>Scoring...</span>
+                                ) : sc ? (
+                                  <>
+                                    <div style={{ display:"flex", alignItems:"center", gap:5, background:scoreColor+"18", border:`1px solid ${scoreColor}44`, borderRadius:6, padding:"3px 8px" }}>
+                                      <span style={{ fontSize:13, fontWeight:900, color:scoreColor }}>{sc.overall}</span>
+                                      <span style={{ fontSize:10, color:"#3d3d5c" }}>/10</span>
+                                    </div>
+                                    <span style={{ fontSize:11, color:"#3d3d5c" }}>Rally {sc.rallyScore} · Story {sc.storyAvg}</span>
+                                    {sc.memorable_line && sc.memorable_line!=="none" && (
+                                      <span style={{ fontSize:11, color:"#7c3aed", fontStyle:"italic", flex:"1 1 100%", marginTop:2 }}>"{sc.memorable_line}"</span>
+                                    )}
+                                  </>
+                                ) : null}
+                              </div>
+                              {sc && <p style={{ fontSize:12, color:"#52527a", margin:"8px 0 0", lineHeight:1.5 }}>{sc.summary}</p>}
+                              <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                                <button onClick={()=>setPost(idea)} style={{ background:"#12122a", border:"1px solid #1a1a2e", borderRadius:6, padding:"5px 12px", color:"#a78bfa", fontSize:11, fontWeight:700, cursor:"pointer" }}>Use this draft</button>
+                                {sc && (
+                                  <button onClick={()=>setExpandedIdea(isExpanded?null:i)} style={{ background:"transparent", border:"1px solid #1a1a2e", borderRadius:6, padding:"5px 12px", color:"#3d3d5c", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                                    {isExpanded?"Hide details":"Full breakdown"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        {isExpanded && sc && (
+                          <div style={{ borderTop:"1px solid #1a1a2e", padding:14, background:"#05050d" }}>
+                            {sc.mandatory_check && (
+                              <div style={{ marginBottom:14 }}>
+                                <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Mandatory Elements</div>
+                                {Object.entries(sc.mandatory_check).map(([el,status])=>{
+                                  const pass=String(status).toLowerCase().startsWith("pass");
+                                  return <div key={el} style={{ display:"flex", gap:8, marginBottom:4, fontSize:11, alignItems:"flex-start" }}><span style={{ color:pass?"#22c55e":"#ef4444", flexShrink:0, fontWeight:800 }}>{pass?"✓":"✗"}</span><span style={{ color:"#9090b0" }}>{el}: {status}</span></div>;
+                                })}
+                              </div>
+                            )}
+                            <div style={{ marginBottom:14 }}>
+                              <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Campaign (out of 2)</div>
+                              {RALLY_CRITERIA.campaign.map(c=>(
+                                <div key={c.id} style={{ marginBottom:10 }}>
+                                  <div style={{ fontSize:12, color:"#c0c0d8", marginBottom:4 }}>{c.label}</div>
+                                  <ScoreBar score={sc.scores[c.id]||0} max={c.max}/>
+                                  {sc.feedback?.[c.id] && <p style={{ fontSize:11, color:"#3d3d5c", margin:"3px 0 0", lineHeight:1.4 }}>{sc.feedback[c.id]}</p>}
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ marginBottom:14 }}>
+                              <div style={{ fontSize:10, color:"#3d3d5c", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Quality (out of 5)</div>
+                              {RALLY_CRITERIA.quality.map(c=>(
+                                <div key={c.id} style={{ marginBottom:10 }}>
+                                  <div style={{ fontSize:12, color:"#c0c0d8", marginBottom:4 }}>{c.label}</div>
+                                  <ScoreBar score={sc.scores[c.id]||0} max={c.max}/>
+                                  {sc.feedback?.[c.id] && <p style={{ fontSize:11, color:"#3d3d5c", margin:"3px 0 0", lineHeight:1.4 }}>{sc.feedback[c.id]}</p>}
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ display:"flex", gap:12 }}>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:10, color:"#22c55e", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>What works</div>
+                                {(sc.strengths||[]).map((s,j)=>(
+                                  <div key={j} style={{ display:"flex", gap:6, marginBottom:6, fontSize:12, color:"#c0c0d8", alignItems:"flex-start" }}><span style={{ color:"#22c55e", flexShrink:0 }}>+</span>{s}</div>
+                                ))}
+                              </div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:10, color:"#f59e0b", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Fix before posting</div>
+                                {(sc.improvements||[]).map((s,j)=>(
+                                  <div key={j} style={{ display:"flex", gap:6, marginBottom:6, fontSize:12, color:"#c0c0d8", alignItems:"flex-start" }}><span style={{ color:"#f59e0b", flexShrink:0 }}>!</span>{s}</div>
+                                ))}
+                              </div>
+                            </div>
+                            {sc.leaderboard_gap && (
+                              <div style={{ marginTop:12, padding:"10px 12px", background:"rgba(124,58,237,0.06)", border:"1px solid rgba(124,58,237,0.2)", borderRadius:8 }}>
+                                <div style={{ fontSize:10, color:"#7c3aed", textTransform:"uppercase", letterSpacing:0.8, marginBottom:4 }}>Gap vs Top 1-5</div>
+                                <p style={{ fontSize:12, color:"#c4b5fd", margin:0, lineHeight:1.5 }}>{sc.leaderboard_gap}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <p style={{ fontSize:10, color:"#1a1a2e", textAlign:"center", marginTop:20, letterSpacing:0.5 }}>SCENE OVER ARGUMENT · MEMORY OVER INFORMATION</p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById("root"));
+</script>
+</body>
+</html>
