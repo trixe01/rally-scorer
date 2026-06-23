@@ -19,7 +19,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState } = React;
+const { useState, useEffect } = React;
 
 const RALLY_CRITERIA = {
   campaign: [
@@ -161,7 +161,11 @@ function App() {
   const [ideas, setIdeas] = useState([]);
   const [error, setError] = useState(null);
   const [expandedIdea, setExpandedIdea] = useState(null);
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(() => { try { return localStorage.getItem("rally_api_key") || ""; } catch(e) { return ""; } });
+  const [showKey, setShowKey] = useState(false);
+
+  useEffect(() => { if (apiKey) { try { localStorage.setItem("rally_api_key", apiKey); } catch(e) {} } }, [apiKey]);
+
   const [showKey, setShowKey] = useState(false);
 
   const callAPI = async (sys, user, temp) => {
